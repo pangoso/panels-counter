@@ -50,20 +50,36 @@ export default function RightPanel({
         <div className="flex flex-col gap-4">
           {colors.map((c) => (
             <div key={c.color} className="flex items-center gap-2">
-              <div
-                className="w-6 h-6 rounded border border-gray-500"
-                style={{ backgroundColor: c.color }}
-              ></div>
+              <div className="relative group">
+                <div
+                  className="w-6 h-6 rounded border border-gray-500 cursor-default"
+                  style={{ backgroundColor: c.color }}
+                />
+                <div
+                  className="
+                  absolute left-8 top-1/2 -translate-y-1/2
+                  whitespace-nowrap
+                  bg-black text-white text-xs
+                  px-2 py-1 rounded shadow-lg
+                  opacity-0 group-hover:opacity-100
+                  transition-opacity duration-150
+                  pointer-events-none
+                  z-50
+                "
+                >
+                  {c.color}
+                </div>
+              </div>
 
               <input
                 type="text"
                 value={c.label}
                 onChange={(e) => onChangeLabel(c.color, e.target.value)}
                 className="
-                  flex-1 px-2 py-1 
-                  bg-gray-700 text-gray-100 
-                  rounded border border-gray-600
-                "
+                flex-1 px-2 py-1 
+                bg-gray-700 text-gray-100 
+                rounded border border-gray-600
+              "
               />
             </div>
           ))}
