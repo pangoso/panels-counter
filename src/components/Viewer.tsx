@@ -2,7 +2,18 @@ import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import RightPanel from "./RightPanel";
 
-type Mark = { id: string; x: number; y: number; color: string };
+type Thickness = 20 | 30 | 40 | 50;
+
+type SectionType = "whole" | "half-vertical" | "half-horizontal";
+
+type Mark = {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
+  thickness?: Thickness | null;
+  section: SectionType;
+};
 
 export default function Viewer() {
   const [showInput, setShowInput] = useState(true);
@@ -11,9 +22,13 @@ export default function Viewer() {
   const [dragEnabled, setDragEnabled] = useState(false);
   const [addPointMode, setAddPointMode] = useState(false);
   const [pointColor, setPointColor] = useState("red");
+  const [pointThickness, setPointThickness] = useState<Thickness | null>(null);
+  const [pointSection, setPointSection] = useState<SectionType>("whole");
 
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [marks, setMarks] = useState<Mark[]>([]);
+
+  const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -29,12 +44,19 @@ export default function Viewer() {
   const [colorDefs, setColorDefs] = useState([
     { color: "red", label: "Red" },
     { color: "yellow", label: "Yellow" },
-    { color: "lime", label: "Green" },
+    { color: "green", label: "Green" },
     { color: "cyan", label: "Cyan" },
     { color: "magenta", label: "Magenta" },
-    { color: "white", label: "White" },
-    { color: "black", label: "Black" },
+    { color: "orange", label: "Orange" },
+    { color: "blue", label: "Blue" },
+    { color: "purple", label: "Purple" },
+    { color: "teal", label: "Teal" },
+    { color: "pink", label: "Pink" },
+    { color: "gold", label: "Gold" },
+    { color: "dodgerblue", label: "Dodger Blue" },
   ]);
+
+  const darkTextColors = new Set(["pink", "gold", "yellow", "cyan", "orange"]);
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -108,12 +130,21 @@ export default function Viewer() {
         x: realX,
         y: realY,
         color: pointColor,
+        thickness: pointThickness ?? null,
+        section: pointSection,
       },
     ]);
   };
 
-  const removeMark = (id: string) => {
-    setMarks((prev) => prev.filter((t) => t.id !== id));
+  // const removeMark = (id: string) => {
+  //   setMarks((prev) => prev.filter((t) => t.id !== id));
+  // };
+
+  const deleteSelected = () => {
+    if (!selectedMarkId) return;
+
+    setMarks((prev) => prev.filter((m) => m.id !== selectedMarkId));
+    setSelectedMarkId(null);
   };
 
   const deleteAll = () => setMarks([]);
@@ -125,21 +156,51 @@ export default function Viewer() {
   };
 
   const countMarks = () => {
-    const counts: Record<string, number> = {};
+    const counts: Record<
+      string,
+      {
+        whole: number;
+        halfVertical: number;
+        halfHorizontal: number;
+      }
+    > = {};
+
     for (const m of marks) {
-      counts[m.color] = (counts[m.color] || 0) + 1;
+      const key = `${m.color}|${m.thickness ?? "none"}`;
+
+      if (!counts[key]) {
+        counts[key] = { whole: 0, halfVertical: 0, halfHorizontal: 0 };
+      }
+
+      const section = m.section ?? "whole";
+
+      if (section === "whole") counts[key].whole++;
+      else if (section === "half-vertical") counts[key].halfVertical++;
+      else if (section === "half-horizontal") counts[key].halfHorizontal++;
     }
+
     return counts;
   };
 
   const generateCSVReport = () => {
-    let csv = "No,Label,Count\n";
+    let csv =
+      "No,Color Label,Thickness (mm),Whole,0.5 Vertical,0.5 Horizontal,Sum\n";
 
-    const markCounts = countMarks();
+    const counts = countMarks();
+    let row = 1;
 
-    colorDefs.forEach((c, index) => {
-      if (markCounts[c.color] > 0)
-        csv += `${index + 1},${c.label},${markCounts[c.color] || 0}\n`;
+    Object.entries(counts).forEach(([key, data]) => {
+      const [color, thickness] = key.split("|");
+      const label = colorDefs.find((c) => c.color === color)?.label ?? color;
+
+      const sum =
+        data.whole +
+        Math.ceil(data.halfVertical / 2) +
+        Math.ceil(data.halfHorizontal / 2);
+
+      csv += `${row++},${label},${thickness === "none" ? "" : thickness},${
+        data.whole
+      },${data.halfVertical},${data.halfHorizontal},${sum}\n`;
     });
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -151,7 +212,6 @@ export default function Viewer() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-
     URL.revokeObjectURL(url);
   };
 
@@ -326,7 +386,15 @@ export default function Viewer() {
             </button>
 
             <button
-              onClick={() => setAddPointMode((v) => !v)}
+              onClick={() => {
+                setAddPointMode((v) => {
+                  const next = !v;
+                  if (next) {
+                    setSelectedMarkId(null);
+                  }
+                  return next;
+                });
+              }}
               className={`px-3 py-2 rounded ${
                 addPointMode ? "bg-green-600" : "bg-gray-700"
               }`}
@@ -336,17 +404,95 @@ export default function Viewer() {
 
             <select
               value={pointColor}
-              onChange={(e) => setPointColor(e.target.value)}
+              onChange={(e) => {
+                const newColor = e.target.value;
+                setPointColor(newColor);
+
+                if (selectedMarkId) {
+                  setMarks((prev) =>
+                    prev.map((m) =>
+                      m.id === selectedMarkId ? { ...m, color: newColor } : m
+                    )
+                  );
+                }
+              }}
               className="px-2 py-2 bg-gray-700 rounded"
             >
               <option value="red">Red</option>
               <option value="yellow">Yellow</option>
-              <option value="lime">Green</option>
+              <option value="green">Green</option>
               <option value="cyan">Cyan</option>
               <option value="magenta">Magenta</option>
-              <option value="white">White</option>
-              <option value="black">Black</option>
+              <option value="orange">Orange</option>
+              <option value="blue">Blue</option>
+              <option value="purple">Purple</option>
+              <option value="teal">Teal</option>
+              <option value="pink">Pink</option>
+              <option value="gold">Gold</option>
+              <option value="dodgerblue">Dodger Blue</option>
             </select>
+
+            <select
+              value={pointThickness ?? "none"}
+              onChange={(e) => {
+                const v = e.target.value;
+                const newThickness =
+                  v === "none" ? null : (Number(v) as Thickness);
+                setPointThickness(newThickness);
+
+                if (selectedMarkId) {
+                  setMarks((prev) =>
+                    prev.map((m) =>
+                      m.id === selectedMarkId
+                        ? { ...m, thickness: newThickness }
+                        : m
+                    )
+                  );
+                }
+              }}
+              className="px-2 py-2 bg-gray-700 rounded"
+            >
+              <option value="none">No thickness</option>
+              <option value="20">2 (20mm)</option>
+              <option value="30">3 (30mm)</option>
+              <option value="40">4 (40mm)</option>
+              <option value="50">5 (50mm)</option>
+            </select>
+
+            <select
+              value={pointSection}
+              onChange={(e) => {
+                const newSection = e.target.value as SectionType;
+                setPointSection(newSection);
+
+                selectedMarkId &&
+                  setMarks((prev) =>
+                    prev.map((m) =>
+                      m.id === selectedMarkId
+                        ? { ...m, section: e.target.value as SectionType }
+                        : m
+                    )
+                  );
+              }}
+              className="px-2 py-2 bg-gray-700 rounded"
+            >
+              <option value="whole">1 – Whole</option>
+              <option value="half-vertical">0.5 – Vertical cut</option>
+              <option value="half-horizontal">0.5 – Horizontal cut</option>
+            </select>
+
+            <button
+              onClick={deleteSelected}
+              disabled={!selectedMarkId}
+              className={`px-3 py-2 rounded font-semibold
+                ${
+                  selectedMarkId
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-gray-600 opacity-50 cursor-not-allowed"
+                }`}
+            >
+              Delete Selected
+            </button>
 
             <button
               onClick={deleteAll}
@@ -368,7 +514,13 @@ export default function Viewer() {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
-            onClick={addPointMode ? handleAddTickClick : undefined}
+            onClick={(e) => {
+              if (addPointMode) {
+                handleAddTickClick(e);
+              } else {
+                setSelectedMarkId(null);
+              }
+            }}
           >
             <div
               style={{
@@ -399,22 +551,97 @@ export default function Viewer() {
                   key={m.id}
                   onClick={(ev) => {
                     ev.stopPropagation();
-                    removeMark(m.id);
+                    if (!addPointMode) {
+                      setSelectedMarkId(m.id);
+                      setPointColor(m.color);
+                      setPointThickness(m.thickness ?? null);
+                      setPointSection(m.section ?? "whole");
+                    }
                   }}
-                  title="Click to remove"
+                  title="Click to select"
                   style={{
                     position: "absolute",
                     left: m.x * zoom,
                     top: m.y * zoom,
-                    width: 14,
-                    height: 14,
+                    width: 18,
+                    height: 18,
                     background: m.color,
                     borderRadius: "50%",
-                    border: "2px solid white",
                     transform: "translate(-50%, -50%)",
-                    cursor: "pointer",
+                    cursor: addPointMode ? "default" : "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "10px",
+                    fontWeight: "bold",
+                    color: darkTextColors.has(m.color) ? "black" : "white",
+                    userSelect: "none",
+                    boxShadow:
+                      m.id === selectedMarkId ? "0 0 0 3px #22c55e" : "none",
                   }}
-                />
+                >
+                  <svg
+                    width={18}
+                    height={18}
+                    viewBox="0 0 18 18"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {(() => {
+                      const section = m.section ?? "whole";
+
+                      if (section === "whole") {
+                        return (
+                          <circle
+                            cx="9"
+                            cy="9"
+                            r="8"
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="2"
+                          />
+                        );
+                      }
+
+                      if (section === "half-vertical") {
+                        return (
+                          <path
+                            d="
+                            M9 1
+                            A8 8 0 0 0 9 17
+                          "
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                        );
+                      }
+
+                      if (section === "half-horizontal") {
+                        return (
+                          <path
+                            d="
+                            M1 9
+                            A8 8 0 0 0 17 9
+                          "
+                            fill="none"
+                            stroke="white"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                        );
+                      }
+
+                      return null;
+                    })()}
+                  </svg>
+
+                  {m.thickness ? m.thickness / 10 : ""}
+                </div>
               ))}
             </div>
           </div>
