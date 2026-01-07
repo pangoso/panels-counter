@@ -21,7 +21,6 @@ type Mark = {
 
 export default function Viewer() {
   const [showInput, setShowInput] = useState(true);
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [dragEnabled, setDragEnabled] = useState(false);
   const [addPointMode, setAddPointMode] = useState(false);
@@ -30,9 +29,12 @@ export default function Viewer() {
   const [pointSection, setPointSection] = useState<SectionType>("whole");
 
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const [marks, setMarks] = useState<Mark[]>([]);
 
   const [selectedMarkId, setSelectedMarkId] = useState<string | null>(null);
+
+  const [pages, setPages] = useState<{ imageSrc: string; marks: Mark[] }[]>([]);
+  const [currentPage, setCurrentPage] = useState(0);
+  const page = pages[currentPage];
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -66,52 +68,63 @@ export default function Viewer() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const fileType = file.type;
-
     if (file.type === "application/pdf") {
       const buffer = await file.arrayBuffer();
-  
       const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
-      const page = await pdf.getPage(1);
-  
-      const viewport = page.getViewport({ scale: 2 });
-  
-      const canvas = document.createElement("canvas");
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-  
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-  
-      await page.render({
-        canvasContext: ctx,
-        viewport
-      }).promise;
-  
-      const pngData = canvas.toDataURL("image/png");
-  
-      setImageSrc(pngData);
-      setShowInput(false);
-      setMarks([]);
+
+      const renderedPages: { imageSrc: string; marks: Mark[] }[] = [];
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 2 });
+
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        if (!ctx) continue;
+
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+
+        await page.render({
+          canvasContext: ctx,
+          viewport,
+        }).promise;
+
+        renderedPages.push({
+          imageSrc: canvas.toDataURL("image/png"),
+          marks: [],
+        });
+      }
+
+      setPages(renderedPages);
+      setCurrentPage(0);
       setZoom(1);
+      setShowInput(false);
       return;
     }
 
     if (
-      fileType === "image/png" ||
-      fileType === "image/jpg" ||
-      fileType === "image/jpeg"
+      file.type === "image/png" ||
+      file.type === "image/jpg" ||
+      file.type === "image/jpeg"
     ) {
       const reader = new FileReader();
       reader.readAsDataURL(file);
       reader.onload = () => {
-        setImageSrc(reader.result as string);
+        setPages([
+          {
+            imageSrc: reader.result as string,
+            marks: [],
+          },
+        ]);
+        setCurrentPage(0);
+        setZoom(1);
         setShowInput(false);
       };
     }
   };
 
-  const containerMaxHeight = showInput && imageSrc ? "82vh" : "92vh";
+  const containerMaxHeight = showInput && page ? "82vh" : "93vh";
 
   const enableDrag = () => setDragEnabled((v) => !v);
 
@@ -156,17 +169,26 @@ export default function Viewer() {
     const realX = clickX / zoom;
     const realY = clickY / zoom;
 
-    setMarks((prev) => [
-      ...prev,
-      {
-        id: crypto.randomUUID(),
-        x: realX,
-        y: realY,
-        color: pointColor,
-        thickness: pointThickness ?? null,
-        section: pointSection,
-      },
-    ]);
+    setPages((prev) =>
+      prev.map((p, i) =>
+        i === currentPage
+          ? {
+              ...p,
+              marks: [
+                ...p.marks,
+                {
+                  id: crypto.randomUUID(),
+                  x: realX,
+                  y: realY,
+                  color: pointColor,
+                  thickness: pointThickness ?? null,
+                  section: pointSection,
+                },
+              ],
+            }
+          : p
+      )
+    );
   };
 
   // const removeMark = (id: string) => {
@@ -176,11 +198,20 @@ export default function Viewer() {
   const deleteSelected = () => {
     if (!selectedMarkId) return;
 
-    setMarks((prev) => prev.filter((m) => m.id !== selectedMarkId));
+    setPages((prev) =>
+      prev.map((p, i) =>
+        i === currentPage
+          ? { ...p, marks: p.marks.filter((m) => m.id !== selectedMarkId) }
+          : p
+      )
+    );
     setSelectedMarkId(null);
   };
 
-  const deleteAll = () => setMarks([]);
+  const deleteAll = () =>
+    setPages((prev) =>
+      prev.map((p, i) => (i === currentPage ? { ...p, marks: [] } : p))
+    );
 
   const updateColorLabel = (color: string, newName: string) => {
     setColorDefs((prev) =>
@@ -192,38 +223,44 @@ export default function Viewer() {
     const counts: Record<
       string,
       {
+        page: number;
         whole: number;
         halfVertical: number;
         halfHorizontal: number;
       }
     > = {};
 
-    for (const m of marks) {
-      const key = `${m.color}|${m.thickness ?? "none"}`;
+    pages.forEach((page, pageIndex) => {
+      page.marks.forEach((m) => {
+        const key = `${pageIndex}|${m.color}|${m.thickness ?? "none"}`;
 
-      if (!counts[key]) {
-        counts[key] = { whole: 0, halfVertical: 0, halfHorizontal: 0 };
-      }
+        if (!counts[key]) {
+          counts[key] = {
+            page: pageIndex + 1,
+            whole: 0,
+            halfVertical: 0,
+            halfHorizontal: 0,
+          };
+        }
 
-      const section = m.section ?? "whole";
-
-      if (section === "whole") counts[key].whole++;
-      else if (section === "half-vertical") counts[key].halfVertical++;
-      else if (section === "half-horizontal") counts[key].halfHorizontal++;
-    }
+        if (m.section === "whole") counts[key].whole++;
+        else if (m.section === "half-vertical") counts[key].halfVertical++;
+        else if (m.section === "half-horizontal") counts[key].halfHorizontal++;
+      });
+    });
 
     return counts;
   };
 
   const generateCSVReport = () => {
     let csv =
-      "No,Color Label,Thickness (mm),Whole,0.5 Vertical,0.5 Horizontal,Sum\n";
+      "No,Page,Color Label,Thickness (mm),Whole,0.5 Vertical,0.5 Horizontal,Sum\n";
 
     const counts = countMarks();
     let row = 1;
 
     Object.entries(counts).forEach(([key, data]) => {
-      const [color, thickness] = key.split("|");
+      const [, color, thickness] = key.split("|");
       const label = colorDefs.find((c) => c.color === color)?.label ?? color;
 
       const sum =
@@ -231,9 +268,9 @@ export default function Viewer() {
         Math.ceil(data.halfVertical / 2) +
         Math.ceil(data.halfHorizontal / 2);
 
-      csv += `${row++},${label},${thickness === "none" ? "" : thickness},${
-        data.whole
-      },${data.halfVertical},${data.halfHorizontal},${sum}\n`;
+      csv += `${row++},${data.page},${label},${
+        thickness === "none" ? "" : thickness
+      },${data.whole},${data.halfVertical},${data.halfHorizontal},${sum}\n`;
     });
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -267,11 +304,11 @@ export default function Viewer() {
         </div>
       )}
 
-      {imageSrc && (
+      {page && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="flex flex-col items-center gap-2 max-w-95vw mt-2"
+          className="flex flex-col items-center max-w-95vw mt-2"
           style={{ maxHeight: containerMaxHeight }}
         >
           <div className="flex gap-3 items-center mb-5">
@@ -442,9 +479,18 @@ export default function Viewer() {
                 setPointColor(newColor);
 
                 if (selectedMarkId) {
-                  setMarks((prev) =>
-                    prev.map((m) =>
-                      m.id === selectedMarkId ? { ...m, color: newColor } : m
+                  setPages((prev) =>
+                    prev.map((p, i) =>
+                      i === currentPage
+                        ? {
+                            ...p,
+                            marks: p.marks.map((m) =>
+                              m.id === selectedMarkId
+                                ? { ...m, color: newColor }
+                                : m
+                            ),
+                          }
+                        : p
                     )
                   );
                 }
@@ -474,11 +520,18 @@ export default function Viewer() {
                 setPointThickness(newThickness);
 
                 if (selectedMarkId) {
-                  setMarks((prev) =>
-                    prev.map((m) =>
-                      m.id === selectedMarkId
-                        ? { ...m, thickness: newThickness }
-                        : m
+                  setPages((prev) =>
+                    prev.map((p, i) =>
+                      i === currentPage
+                        ? {
+                            ...p,
+                            marks: p.marks.map((m) =>
+                              m.id === selectedMarkId
+                                ? { ...m, thickness: newThickness }
+                                : m
+                            ),
+                          }
+                        : p
                     )
                   );
                 }
@@ -499,11 +552,21 @@ export default function Viewer() {
                 setPointSection(newSection);
 
                 selectedMarkId &&
-                  setMarks((prev) =>
-                    prev.map((m) =>
-                      m.id === selectedMarkId
-                        ? { ...m, section: e.target.value as SectionType }
-                        : m
+                  setPages((prev) =>
+                    prev.map((p, i) =>
+                      i === currentPage
+                        ? {
+                            ...p,
+                            marks: p.marks.map((m) =>
+                              m.id === selectedMarkId
+                                ? {
+                                    ...m,
+                                    section: e.target.value as SectionType,
+                                  }
+                                : m
+                            ),
+                          }
+                        : p
                     )
                   );
               }}
@@ -564,7 +627,7 @@ export default function Viewer() {
             >
               <img
                 ref={imgRef}
-                src={imageSrc}
+                src={page.imageSrc}
                 alt="img"
                 onLoad={(e) => {
                   const img = e.currentTarget;
@@ -579,7 +642,7 @@ export default function Viewer() {
                 }}
               />
 
-              {marks.map((m) => (
+              {page.marks.map((m) => (
                 <div
                   key={m.id}
                   onClick={(ev) => {
@@ -647,7 +710,9 @@ export default function Viewer() {
                             A8 8 0 0 0 9 17
                           "
                             fill="none"
-                            stroke={darkTextColors.has(m.color) ? "black" : "white"}
+                            stroke={
+                              darkTextColors.has(m.color) ? "black" : "white"
+                            }
                             strokeWidth="2"
                             strokeLinecap="round"
                           />
@@ -662,7 +727,9 @@ export default function Viewer() {
                             A8 8 0 0 0 17 9
                           "
                             fill="none"
-                            stroke={darkTextColors.has(m.color) ? "black" : "white"}
+                            stroke={
+                              darkTextColors.has(m.color) ? "black" : "white"
+                            }
                             strokeWidth="2"
                             strokeLinecap="round"
                           />
@@ -677,6 +744,32 @@ export default function Viewer() {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div className="flex gap-2 items-center mt-2">
+            <button
+              disabled={currentPage === 0}
+              onClick={() => {
+                setSelectedMarkId(null);
+                setCurrentPage((p) => p - 1);
+              }}
+            >
+              ◀
+            </button>
+
+            <span>
+              Page {currentPage + 1} / {pages.length}
+            </span>
+
+            <button
+              disabled={currentPage === pages.length - 1}
+              onClick={() => {
+                setSelectedMarkId(null);
+                setCurrentPage((p) => p + 1);
+              }}
+            >
+              ▶
+            </button>
           </div>
         </motion.div>
       )}
