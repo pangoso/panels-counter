@@ -1,6 +1,12 @@
 import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import RightPanel from "./RightPanel";
+import * as pdfjsLib from "pdfjs-dist";
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/build/pdf.worker.min.mjs",
+  import.meta.url
+).toString();
 
 type Thickness = 20 | 30 | 40 | 50;
 
@@ -63,6 +69,36 @@ export default function Viewer() {
     if (!file) return;
 
     const fileType = file.type;
+
+    if (file.type === "application/pdf") {
+      const buffer = await file.arrayBuffer();
+  
+      const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+      const page = await pdf.getPage(1);
+  
+      const viewport = page.getViewport({ scale: 2 });
+  
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+  
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+  
+      await page.render({
+        canvasContext: ctx,
+        viewport,
+        canvas,
+      }).promise;
+  
+      const pngData = canvas.toDataURL("image/png");
+  
+      setImageSrc(pngData);
+      setShowInput(false);
+      setMarks([]);
+      setZoom(1);
+      return;
+    }
 
     if (
       fileType === "image/png" ||
@@ -227,7 +263,7 @@ export default function Viewer() {
         <div className="w-full max-w-xl p-6 shadow-2xl bg-gray-800 rounded-lg border border-gray-700">
           <input
             type="file"
-            accept="image/png, image/jpg, image/jpeg"
+            accept="image/png, image/jpg, image/jpeg, application/pdf"
             onChange={handleFile}
             className="border p-2 rounded w-full bg-gray-700 text-gray-100 border-gray-600"
           />
