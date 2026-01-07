@@ -1,12 +1,10 @@
 import React, { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import RightPanel from "./RightPanel";
-import * as pdfjsLib from "pdfjs-dist";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
+import workerSrc from "pdfjs-dist/legacy/build/pdf.worker.min.js";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url
-).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
 type Thickness = 20 | 30 | 40 | 50;
 
@@ -87,8 +85,7 @@ export default function Viewer() {
   
       await page.render({
         canvasContext: ctx,
-        viewport,
-        canvas,
+        viewport
       }).promise;
   
       const pngData = canvas.toDataURL("image/png");
@@ -650,7 +647,7 @@ export default function Viewer() {
                             A8 8 0 0 0 9 17
                           "
                             fill="none"
-                            stroke="white"
+                            stroke={darkTextColors.has(m.color) ? "black" : "white"}
                             strokeWidth="2"
                             strokeLinecap="round"
                           />
@@ -665,7 +662,7 @@ export default function Viewer() {
                             A8 8 0 0 0 17 9
                           "
                             fill="none"
-                            stroke="white"
+                            stroke={darkTextColors.has(m.color) ? "black" : "white"}
                             strokeWidth="2"
                             strokeLinecap="round"
                           />
