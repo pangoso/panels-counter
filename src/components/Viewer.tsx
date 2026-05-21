@@ -223,44 +223,44 @@ export default function Viewer() {
     const counts: Record<
       string,
       {
-        page: number;
         whole: number;
         halfVertical: number;
         halfHorizontal: number;
       }
     > = {};
-
-    pages.forEach((page, pageIndex) => {
+  
+    pages.forEach((page) => {
       page.marks.forEach((m) => {
-        const key = `${pageIndex}|${m.color}|${m.thickness ?? "none"}`;
-
+        const key = `${m.color}|${m.thickness ?? "none"}`;
+  
         if (!counts[key]) {
           counts[key] = {
-            page: pageIndex + 1,
             whole: 0,
             halfVertical: 0,
             halfHorizontal: 0,
           };
         }
-
+  
         if (m.section === "whole") counts[key].whole++;
-        else if (m.section === "half-vertical") counts[key].halfVertical++;
-        else if (m.section === "half-horizontal") counts[key].halfHorizontal++;
+        else if (m.section === "half-vertical")
+          counts[key].halfVertical++;
+        else if (m.section === "half-horizontal")
+          counts[key].halfHorizontal++;
       });
     });
-
+  
     return counts;
-  };
+  }
 
   const generateCSVReport = () => {
     let csv =
-      "No,Page,Color Label,Thickness (mm),Whole,0.5 Vertical,0.5 Horizontal,Sum\n";
+      "No,Color Label,Thickness (mm),Whole,0.5 Vertical,0.5 Horizontal,Sum\n";
 
     const counts = countMarks();
     let row = 1;
 
     Object.entries(counts).forEach(([key, data]) => {
-      const [, color, thickness] = key.split("|");
+      const [color, thickness] = key.split("|");
       const label = colorDefs.find((c) => c.color === color)?.label ?? color;
 
       const sum =
@@ -268,7 +268,7 @@ export default function Viewer() {
         Math.ceil(data.halfVertical / 2) +
         Math.ceil(data.halfHorizontal / 2);
 
-      csv += `${row++},${data.page},${label},${
+      csv += `${row++},${label},${
         thickness === "none" ? "" : thickness
       },${data.whole},${data.halfVertical},${data.halfHorizontal},${sum}\n`;
     });
