@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import RightPanel from "./RightPanel";
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
 import workerSrc from "pdfjs-dist/legacy/build/pdf.worker.min.js";
+import * as XLSX from "xlsx";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerSrc;
 
@@ -17,6 +18,7 @@ type Mark = {
   color: string;
   thickness?: Thickness | null;
   section: SectionType;
+  colorName: string | null;
 };
 
 export default function Viewer() {
@@ -48,18 +50,18 @@ export default function Viewer() {
   });
 
   const [colorDefs, setColorDefs] = useState([
-    { color: "red", label: "Red" },
-    { color: "yellow", label: "Yellow" },
-    { color: "green", label: "Green" },
-    { color: "cyan", label: "Cyan" },
-    { color: "magenta", label: "Magenta" },
-    { color: "orange", label: "Orange" },
-    { color: "blue", label: "Blue" },
-    { color: "purple", label: "Purple" },
-    { color: "teal", label: "Teal" },
-    { color: "pink", label: "Pink" },
-    { color: "gold", label: "Gold" },
-    { color: "dodgerblue", label: "Dodger Blue" },
+    { color: "red", label: "Name 1", matrixColumn: "Red" },
+    { color: "yellow", label: "Name 2", matrixColumn: "Yellow" },
+    { color: "green", label: "Name 3", matrixColumn: "Green" },
+    { color: "cyan", label: "Name 4", matrixColumn: "Cyan" },
+    { color: "magenta", label: "Name 5", matrixColumn: "Magenta" },
+    { color: "orange", label: "Name 6", matrixColumn: "Orange" },
+    { color: "blue", label: "Name 7", matrixColumn: "Blue" },
+    { color: "purple", label: "Name 8", matrixColumn: "Purple" },
+    { color: "teal", label: "Name 9", matrixColumn: "Teal" },
+    { color: "pink", label: "Name 10", matrixColumn: "Pink" },
+    { color: "gold", label: "Name 11", matrixColumn: "Gold" },
+    { color: "dodgerblue", label: "Name 12", matrixColumn: "Dodger Blue" },
   ]);
 
   const darkTextColors = new Set(["pink", "gold", "yellow", "cyan", "orange"]);
@@ -183,6 +185,7 @@ export default function Viewer() {
                   color: pointColor,
                   thickness: pointThickness ?? null,
                   section: pointSection,
+                  colorName: null,
                 },
               ],
             }
@@ -219,6 +222,12 @@ export default function Viewer() {
     );
   };
 
+  const updateMatrixColumn = (color: string, value: string) => {
+    setColorDefs((prev) =>
+      prev.map((c) => (c.color === color ? { ...c, matrixColumn: value } : c))
+    );
+  };
+
   const countMarks = () => {
     const counts: Record<
       string,
@@ -228,11 +237,11 @@ export default function Viewer() {
         halfHorizontal: number;
       }
     > = {};
-  
+
     pages.forEach((page) => {
       page.marks.forEach((m) => {
         const key = `${m.color}|${m.thickness ?? "none"}`;
-  
+
         if (!counts[key]) {
           counts[key] = {
             whole: 0,
@@ -240,27 +249,36 @@ export default function Viewer() {
             halfHorizontal: 0,
           };
         }
-  
+
         if (m.section === "whole") counts[key].whole++;
-        else if (m.section === "half-vertical")
-          counts[key].halfVertical++;
-        else if (m.section === "half-horizontal")
-          counts[key].halfHorizontal++;
+        else if (m.section === "half-vertical") counts[key].halfVertical++;
+        else if (m.section === "half-horizontal") counts[key].halfHorizontal++;
       });
     });
-  
+
     return counts;
-  }
+  };
 
   const generateCSVReport = () => {
-    let csv =
-      "No,Color Label,Thickness (mm),Whole,0.5 Vertical,0.5 Horizontal,Sum\n";
+    const summaryRows: (string | number)[][] = [
+      [
+        "No",
+        "Color Label",
+        "Thickness (mm)",
+        "Whole",
+        "0.5 Vertical",
+        "0.5 Horizontal",
+        "Sum",
+      ],
+    ];
 
     const counts = countMarks();
+
     let row = 1;
 
     Object.entries(counts).forEach(([key, data]) => {
       const [color, thickness] = key.split("|");
+
       const label = colorDefs.find((c) => c.color === color)?.label ?? color;
 
       const sum =
@@ -268,21 +286,83 @@ export default function Viewer() {
         Math.ceil(data.halfVertical / 2) +
         Math.ceil(data.halfHorizontal / 2);
 
-      csv += `${row++},${label},${
-        thickness === "none" ? "" : thickness
-      },${data.whole},${data.halfVertical},${data.halfHorizontal},${sum}\n`;
+      summaryRows.push([
+        row++,
+        label,
+        thickness === "none" ? "" : thickness,
+        data.whole,
+        data.halfVertical,
+        data.halfHorizontal,
+        sum,
+      ]);
     });
 
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
+    // =========================
+    // WORKSHEET 2 - MATRIX
+    // =========================
 
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", "marks_report.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const matrix: Record<string, Record<string, number>> = {};
+
+    const allColumns = new Set<string>();
+
+    pages.forEach((page) => {
+      page.marks.forEach((m) => {
+        const colorDef = colorDefs.find((c) => c.color === m.color);
+
+        if (!colorDef) return;
+
+        const rowKey = `${colorDef.label} ${m.thickness ?? ""}`.trim();
+
+        const columnKey = colorDef.matrixColumn?.trim() || "Unassigned";
+
+        allColumns.add(columnKey);
+
+        if (!matrix[rowKey]) {
+          matrix[rowKey] = {};
+        }
+
+        let valueToAdd = 1;
+
+        if (m.section === "half-vertical" || m.section === "half-horizontal") {
+          valueToAdd = 0.5;
+        }
+
+        matrix[rowKey][columnKey] =
+          (matrix[rowKey][columnKey] || 0) + valueToAdd;
+      });
+    });
+
+    const columns = Array.from(allColumns);
+
+    const matrixRows: (string | number)[][] = [
+      ["Color Label Thickness", ...columns],
+    ];
+
+    Object.entries(matrix).forEach(([rowKey, columnValues]) => {
+      const row: (string | number)[] = [rowKey];
+
+      columns.forEach((col) => {
+        row.push(columnValues[col] || 0);
+      });
+
+      matrixRows.push(row);
+    });
+
+    // =========================
+    // CREATE EXCEL FILE
+    // =========================
+
+    const wb = XLSX.utils.book_new();
+
+    const ws1 = XLSX.utils.aoa_to_sheet(summaryRows);
+
+    const ws2 = XLSX.utils.aoa_to_sheet(matrixRows);
+
+    XLSX.utils.book_append_sheet(wb, ws1, "Summary");
+
+    XLSX.utils.book_append_sheet(wb, ws2, "Matrix");
+
+    XLSX.writeFile(wb, "marks_report.xlsx");
   };
 
   return (
@@ -290,6 +370,7 @@ export default function Viewer() {
       <RightPanel
         colors={colorDefs}
         onChangeLabel={updateColorLabel}
+        onChangeMatrixColumn={updateMatrixColumn}
         generateCSVReport={generateCSVReport}
       />
 

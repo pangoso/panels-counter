@@ -3,15 +3,18 @@ import React, { useState } from "react";
 interface ColorDefinition {
   color: string;
   label: string;
+  matrixColumn: string;
 }
 
 export default function RightPanel({
   colors,
   onChangeLabel,
+  onChangeMatrixColumn,
   generateCSVReport,
 }: {
   colors: ColorDefinition[];
   onChangeLabel: (color: string, newName: string) => void;
+  onChangeMatrixColumn: (color: string, value: string) => void;
   generateCSVReport: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -41,15 +44,28 @@ export default function RightPanel({
 
       <div
         className="
-          w-64 h-full bg-gray-900 
+          w-70 h-full bg-gray-900 
           border-l border-gray-700 shadow-2xl 
           p-4 overflow-y-auto
         "
       >
         <h2 className="text-xl font-semibold mb-4">Color Labels</h2>
+
+        <button
+          onClick={generateCSVReport}
+          className="mb-4 px-3 py-2 bg-blue-600 rounded text-white w-full font-semibold hover:bg-blue-700"
+        >
+          Generate Report
+        </button>
+
         <div className="flex flex-col gap-4">
           {colors.map((c) => (
-            <div key={c.color} className="flex items-center gap-2">
+            <div
+              key={c.color}
+              className="
+                flex items-center gap-2
+                pb-3 border-b border-gray-700"
+            >
               <div className="relative group">
                 <div
                   className="w-6 h-6 rounded border border-gray-500 cursor-default"
@@ -71,26 +87,35 @@ export default function RightPanel({
                 </div>
               </div>
 
-              <input
-                type="text"
-                value={c.label}
-                onChange={(e) => onChangeLabel(c.color, e.target.value)}
-                className="
-                flex-1 px-2 py-1 
-                bg-gray-700 text-gray-100 
-                rounded border border-gray-600
-              "
-              />
+              <div className="
+                flex flex-col gap-2
+              ">
+                <input
+                  type="text"
+                  value={c.label}
+                  onChange={(e) => onChangeLabel(c.color, e.target.value)}
+                  className="
+                  flex-1 px-2 py-1 
+                  bg-gray-700 text-gray-100 
+                  rounded border border-gray-600
+                "
+                />
+
+                <input
+                  type="text"
+                  value={c.matrixColumn}
+                  placeholder="Matrix column"
+                  onChange={(e) => onChangeMatrixColumn(c.color, e.target.value)}
+                  className="
+                    flex-1 px-2 py-1
+                    bg-gray-700 text-gray-100
+                    rounded border border-gray-600
+                  "
+                />
+              </div>
             </div>
           ))}
         </div>
-
-        <button
-          onClick={generateCSVReport}
-          className="mt-4 px-3 py-2 bg-blue-600 rounded text-white w-full font-semibold hover:bg-blue-700"
-        >
-          Generate Report
-        </button>
       </div>
     </div>
   );
